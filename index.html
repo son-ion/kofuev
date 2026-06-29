@@ -7,9 +7,9 @@
 
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/react-is@18/umd/react-is.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-<script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.js"></script>
+<script src="https://unpkg.com/recharts/umd/Recharts.min.js"></script>
 
 <style>
   :root {
@@ -101,21 +101,16 @@ function fmt(n, digits = 0) {
   return n.toLocaleString('en-US', { maximumFractionDigits: digits });
 }
 
+const ICONS = {
+  Sun: '☀️', Home: '🏠', Car: '🚗', Battery: '🔋',
+  Building2: '🏙️', Info: 'ⓘ',
+};
 function Icon({ name, size = 15, color, style }) {
-  const ref = React.useRef(null);
-  React.useEffect(() => {
-    if (ref.current && window.lucide) {
-      ref.current.innerHTML = '';
-      const svg = window.lucide.createElement(window.lucide.icons[name]);
-      if (svg) {
-        svg.setAttribute('width', size);
-        svg.setAttribute('height', size);
-        if (color) svg.setAttribute('stroke', color);
-        ref.current.appendChild(svg);
-      }
-    }
-  }, [name, size, color]);
-  return <span ref={ref} style={{ display: 'inline-flex', verticalAlign: 'middle', ...style }} />;
+  return (
+    <span style={{ display: 'inline-flex', verticalAlign: 'middle', fontSize: size, lineHeight: 1, ...style }}>
+      {ICONS[name] || ''}
+    </span>
+  );
 }
 
 function App() {
@@ -374,7 +369,26 @@ function App() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, fontFamily: 'monospace', color: '#1f2620', background: '#fdfbf6', minHeight: '100vh' }}>
+          <h2>Something broke while loading the calculator</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', background: '#fff', padding: 16, borderRadius: 8, border: '1px solid #d8d2c2' }}>
+            {String(this.state.error && this.state.error.message || this.state.error)}
+          </pre>
+          <p>Open the browser console (F12) for the full stack trace.</p>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App /></ErrorBoundary>);
 </script>
 </body>
 </html>
