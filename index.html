@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Kōfu Solar vs EV Calculator</title>
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/lucide@0.383.0/dist/umd/lucide.js"></script>
+
+<style>
+  :root {
+    --color-bg: #fdfbf6;
+    --color-ink: #1f2620;
+    --color-solar: #e8964a;
+    --color-solar-deep: #c4762e;
+    --color-ev: #2f6f6b;
+    --color-ev-deep: #1f4f4c;
+    --color-line: #d8d2c2;
+    --color-card: #ffffff;
+    --font-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, serif;
+    --font-body: 'Avenir Next', 'Segoe UI', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--color-bg); }
+  #root { min-height: 100vh; }
+  .toggle-btn {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    padding: 10px 18px;
+    border-radius: 100px;
+    border: 1.5px solid var(--color-line);
+    background: transparent;
+    color: var(--color-ink);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .toggle-btn.active {
+    background: var(--color-ink);
+    color: var(--color-bg);
+    border-color: var(--color-ink);
+  }
+  .slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 6px;
+    border-radius: 4px;
+    background: var(--color-line);
+    outline: none;
+  }
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--color-solar-deep);
+    cursor: pointer;
+    border: 3px solid white;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+  }
+  .slider-ev::-webkit-slider-thumb { background: var(--color-ev-deep); }
+  .slider::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--color-solar-deep); cursor: pointer; border: 3px solid white;
+  }
+  .slider-ev::-moz-range-thumb { background: var(--color-ev-deep); }
+  @media (max-width: 640px) {
+    .grid-2 { grid-template-columns: 1fr !important; }
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+const {
+  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, Cell
+} = Recharts;
+
+const KOFU_KWH_PER_KWP_DAY = 4.6;
+const MONTHLY_FACTOR = {
+  Jan: 1.18, Feb: 1.12, Mar: 1.08, Apr: 1.02, May: 1.00, Jun: 0.86,
+  Jul: 0.84, Aug: 0.98, Sep: 0.80, Oct: 0.92, Nov: 1.02, Dec: 1.12,
+};
+const EV_WH_PER_KM = 170;
+const KOFU_HOUSEHOLDS = 79000;
+
+function fmt(n, digits = 0) {
+  return n.toLocaleString('en-US', { maximumFractionDigits: digits });
+}
+
+function Icon({ name, size = 15, color, style }) {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (ref.current && window.lucide) {
+      ref.current.innerHTML = '';
+      const svg = window.lucide.createElement(window.lucide.icons[name]);
+      if (svg) {
+        svg.setAttribute('width', size);
+        svg.setAttribute('height', size);
+        if (color) svg.setAttribute('stroke', color);
+        ref.current.appendChild(svg);
+      }
+    }
+  }, [name, size, color]);
+  return <span ref={ref} style={{ display: 'inline-flex', verticalAlign: 'middle', ...style }} />;
+}
+
+function App() {
+  const [view, setView] = useState('household');
+  const [systemSize, setSystemSize] = useState(5);
+  const [dailyKm, setDailyKm] = useState(25);
+  const [evCount, setEvCount] = useState(1);
+
+  const [evAdoptionPct, setEvAdoptionPct] = useState(15);
+  const [solarAdoptionPct, setSolarAdoptionPct] = useState(20);
+  const [citySystemSize, setCitySystemSize] = useState(5);
+
+  const dailySolarKwh = systemSize * KOFU_KWH_PER_KWP_DAY;
+  const dailyEvNeedKwh = (dailyKm * EV_WH_PER_KM * evCount) / 1000;
+  const surplus = dailySolarKwh - dailyEvNeedKwh;
+  const evsCoverable = dailySolarKwh / ((dailyKm * EV_WH_PER_KM) / 1000);
+
+  const monthlyData = useMemo(() => {
+    return Object.entries(MONTHLY_FACTOR).map(([month, factor]) => {
+      const solar = systemSize * KOFU_KWH_PER_KWP_DAY * factor * 30;
+      const evNeed = dailyEvNeedKwh * 30;
+      return { month, solar: Math.round(solar), evNeed: Math.round(evNeed) };
+    });
+  }, [systemSize, dailyEvNeedKwh]);
+
+  const cityEvHouseholds = KOFU_HOUSEHOLDS * (evAdoptionPct / 100);
+  const citySolarHouseholds = KOFU_HOUSEHOLDS * (solarAdoptionPct / 100);
+  const cityDailyEvDemand = cityEvHouseholds * ((dailyKm * EV_WH_PER_KM) / 1000);
+  const cityDailySolarSupply = citySolarHouseholds * citySystemSize * KOFU_KWH_PER_KWP_DAY;
+  const cityRatio = cityDailySolarSupply / cityDailyEvDemand;
+  const cityCoveragePct = Math.min(cityRatio * 100, 999);
+
+  const cityBarData = [
+    { name: 'EV demand', value: Math.round(cityDailyEvDemand), fill: 'var(--color-ev)' },
+    { name: 'Solar supply', value: Math.round(cityDailySolarSupply), fill: 'var(--color-solar)' },
+  ];
+
+  const styles = {
+    page: {
+      fontFamily: 'var(--font-body)', background: 'var(--color-bg)', color: 'var(--color-ink)',
+      minHeight: '100%', padding: '32px 20px 48px', maxWidth: 760, margin: '0 auto',
+    },
+    header: { marginBottom: 28 },
+    eyebrow: {
+      display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
+      letterSpacing: '0.08em', color: 'var(--color-solar-deep)', marginBottom: 10,
+    },
+    h1: {
+      fontFamily: 'var(--font-display)', fontSize: 'clamp(28px, 5vw, 38px)', fontWeight: 500,
+      lineHeight: 1.15, margin: '0 0 12px 0', letterSpacing: '-0.01em',
+    },
+    sub: { fontSize: 15, lineHeight: 1.55, color: '#52584f', maxWidth: 560, margin: 0 },
+    toggleRow: { display: 'flex', gap: 10, marginBottom: 28 },
+    body: { display: 'flex', flexDirection: 'column', gap: 20 },
+    card: { background: 'var(--color-card)', border: '1.5px solid var(--color-line)', borderRadius: 14, padding: '20px 22px' },
+    cardLabel: {
+      display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 700,
+      letterSpacing: '0.06em', color: '#6b7066', marginBottom: 10,
+    },
+    bigStat: { fontFamily: 'var(--font-display)', fontSize: 34, fontWeight: 500, marginBottom: 14 },
+    unit: { fontSize: 16, fontWeight: 400, color: '#8a8f84', marginLeft: 4 },
+    rangeLabels: { display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9a9d92', marginTop: 6, fontFamily: 'var(--font-mono)' },
+    pill: { border: '1.5px solid var(--color-ev-deep)', borderRadius: 100, padding: '8px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-body)' },
+    resultBanner: (positive) => ({
+      background: positive ? '#eef5e8' : '#fbece4',
+      border: `1.5px solid ${positive ? '#b9d3a3' : '#e3b59a'}`,
+      borderRadius: 14, padding: '22px 24px',
+    }),
+    resultNum: { fontFamily: 'var(--font-display)', fontSize: 32, fontWeight: 500, marginBottom: 6 },
+    resultSub: { fontSize: 13, color: '#52584f', marginBottom: 10, fontFamily: 'var(--font-mono)' },
+    verdict: { fontSize: 14.5, fontWeight: 600, lineHeight: 1.45 },
+    legendRow: { display: 'flex', gap: 18, marginTop: 8, justifyContent: 'center' },
+    legendItem: { fontSize: 12, color: '#52584f', display: 'flex', alignItems: 'center', gap: 6 },
+    statGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 },
+    statBox: { background: 'var(--color-card)', border: '1.5px solid var(--color-line)', borderRadius: 12, padding: '14px 16px' },
+    statBoxLabel: { fontSize: 11, color: '#8a8f84', marginBottom: 4, fontWeight: 600, letterSpacing: '0.03em' },
+    statBoxVal: { fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 600 },
+    footnote: { fontSize: 12, color: '#9a9d92', lineHeight: 1.5, marginTop: 4 },
+  };
+
+  return (
+    <div style={styles.page}>
+      <header style={styles.header}>
+        <div style={styles.eyebrow}>
+          <Icon name="Sun" size={14} color="var(--color-solar-deep)" />
+          <span>KŌFU, YAMANASHI — SOLAR YIELD MODEL</span>
+        </div>
+        <h1 style={styles.h1}>Can the sun here charge the cars here?</h1>
+        <p style={styles.sub}>
+          Kōfu basin sees ~2,178 sunshine hours a year, well above the national average.
+          This model estimates daily solar generation against EV charging demand —
+          for a single rooftop, or across the whole city.
+        </p>
+      </header>
+
+      <div style={styles.toggleRow}>
+        <button className={`toggle-btn ${view === 'household' ? 'active' : ''}`} onClick={() => setView('household')}>
+          <Icon name="Home" size={16} /> Household
+        </button>
+        <button className={`toggle-btn ${view === 'city' ? 'active' : ''}`} onClick={() => setView('city')}>
+          <Icon name="Building2" size={16} /> City-wide
+        </button>
+      </div>
+
+      {view === 'household' ? (
+        <div style={styles.body}>
+          <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <div style={styles.card}>
+              <div style={styles.cardLabel}><Icon name="Sun" color="var(--color-solar-deep)" /> ROOFTOP SYSTEM</div>
+              <div style={styles.bigStat}>{systemSize} <span style={styles.unit}>kW</span></div>
+              <input type="range" min="2" max="10" step="0.5" value={systemSize}
+                onChange={(e) => setSystemSize(parseFloat(e.target.value))} className="slider" />
+              <div style={styles.rangeLabels}><span>2 kW</span><span>10 kW</span></div>
+            </div>
+
+            <div style={styles.card}>
+              <div style={styles.cardLabel}><Icon name="Car" color="var(--color-ev-deep)" /> DAILY DRIVING</div>
+              <div style={styles.bigStat}>{dailyKm} <span style={styles.unit}>km/day</span></div>
+              <input type="range" min="5" max="80" step="5" value={dailyKm}
+                onChange={(e) => setDailyKm(parseFloat(e.target.value))} className="slider slider-ev" />
+              <div style={styles.rangeLabels}><span>5 km</span><span>80 km</span></div>
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.cardLabel}><Icon name="Battery" color="var(--color-ev-deep)" /> NUMBER OF EVS CHARGING FROM THIS ROOF</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 8 }}>
+              {[1, 2, 3].map((n) => (
+                <button key={n} onClick={() => setEvCount(n)} style={{
+                  ...styles.pill,
+                  background: evCount === n ? 'var(--color-ev-deep)' : 'transparent',
+                  color: evCount === n ? 'white' : 'var(--color-ink)',
+                }}>{n} EV{n > 1 ? 's' : ''}</button>
+              ))}
+            </div>
+          </div>
+
+          <div style={styles.resultBanner(surplus >= 0)}>
+            <div style={styles.resultNum}>{dailySolarKwh.toFixed(1)} <span style={{ fontSize: 18, fontWeight: 500 }}>kWh/day generated</span></div>
+            <div style={styles.resultSub}>{dailyEvNeedKwh.toFixed(1)} kWh/day needed for {evCount} EV{evCount > 1 ? 's' : ''} at {dailyKm} km/day</div>
+            <div style={styles.verdict}>
+              {surplus >= 0
+                ? `Surplus of ${surplus.toFixed(1)} kWh/day — this roof could charge up to ${evsCoverable.toFixed(1)} similar EVs.`
+                : `Shortfall of ${Math.abs(surplus).toFixed(1)} kWh/day — would need a bigger system or grid top-up.`}
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.cardLabel}>SEASONAL OUTPUT VS EV DEMAND — MONTHLY (kWh)</div>
+            <ResponsiveContainer width="100%" height={260}>
+              <AreaChart data={monthlyData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="solarGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#e8964a" stopOpacity={0.55} />
+                    <stop offset="100%" stopColor="#e8964a" stopOpacity={0.05} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 6" stroke="#d8d2c2" vertical={false} />
+                <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#1f2620' }} axisLine={{ stroke: '#d8d2c2' }} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#1f2620' }} axisLine={false} tickLine={false} width={50} />
+                <Tooltip contentStyle={{ fontFamily: 'sans-serif', fontSize: 13, borderRadius: 8, border: '1px solid #d8d2c2' }}
+                  formatter={(value, name) => [`${fmt(value)} kWh`, name === 'solar' ? 'Solar generated' : 'EV demand']} />
+                <Area type="monotone" dataKey="solar" stroke="#c4762e" strokeWidth={2} fill="url(#solarGrad)" />
+                <Area type="monotone" dataKey="evNeed" stroke="#1f4f4c" strokeWidth={2} fill="transparent" strokeDasharray="5 4" />
+              </AreaChart>
+            </ResponsiveContainer>
+            <div style={styles.legendRow}>
+              <span style={styles.legendItem}><i style={{ width: 10, height: 10, borderRadius: 2, background: '#c4762e', display: 'inline-block' }} />Solar generated</span>
+              <span style={styles.legendItem}><i style={{ width: 10, height: 10, borderRadius: 2, background: '#1f4f4c', display: 'inline-block' }} />EV demand</span>
+            </div>
+          </div>
+
+          <p style={styles.footnote}>
+            <Icon name="Info" size={13} style={{ marginRight: 4 }} />
+            Based on ~4.6 kWh/kWp/day average yield for Kōfu (scaled from Japan's 4.07 kWh/kWp national average
+            using Kōfu's higher sunshine hours) and 170 Wh/km average EV efficiency.
+          </p>
+        </div>
+      ) : (
+        <div style={styles.body}>
+          <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <div style={styles.card}>
+              <div style={styles.cardLabel}><Icon name="Sun" color="var(--color-solar-deep)" /> % HOUSEHOLDS WITH SOLAR</div>
+              <div style={styles.bigStat}>{solarAdoptionPct}<span style={styles.unit}>%</span></div>
+              <input type="range" min="1" max="100" step="1" value={solarAdoptionPct}
+                onChange={(e) => setSolarAdoptionPct(parseFloat(e.target.value))} className="slider" />
+              <div style={styles.rangeLabels}><span>1%</span><span>100%</span></div>
+            </div>
+            <div style={styles.card}>
+              <div style={styles.cardLabel}><Icon name="Car" color="var(--color-ev-deep)" /> % HOUSEHOLDS WITH AN EV</div>
+              <div style={styles.bigStat}>{evAdoptionPct}<span style={styles.unit}>%</span></div>
+              <input type="range" min="1" max="100" step="1" value={evAdoptionPct}
+                onChange={(e) => setEvAdoptionPct(parseFloat(e.target.value))} className="slider slider-ev" />
+              <div style={styles.rangeLabels}><span>1%</span><span>100%</span></div>
+            </div>
+          </div>
+
+          <div className="grid-2" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
+            <div style={styles.card}>
+              <div style={styles.cardLabel}>AVG SYSTEM SIZE (kW)</div>
+              <div style={styles.bigStat}>{citySystemSize}<span style={styles.unit}>kW</span></div>
+              <input type="range" min="2" max="10" step="0.5" value={citySystemSize}
+                onChange={(e) => setCitySystemSize(parseFloat(e.target.value))} className="slider" />
+            </div>
+            <div style={styles.card}>
+              <div style={styles.cardLabel}>AVG DAILY DRIVING (km)</div>
+              <div style={styles.bigStat}>{dailyKm}<span style={styles.unit}>km</span></div>
+              <input type="range" min="5" max="80" step="5" value={dailyKm}
+                onChange={(e) => setDailyKm(parseFloat(e.target.value))} className="slider slider-ev" />
+            </div>
+          </div>
+
+          <div style={styles.resultBanner(cityRatio >= 1)}>
+            <div style={styles.resultNum}>{cityCoveragePct >= 999 ? '999+' : cityCoveragePct.toFixed(0)}<span style={{ fontSize: 18, fontWeight: 500 }}>% covered</span></div>
+            <div style={styles.resultSub}>
+              {fmt(cityDailySolarSupply)} kWh/day solar supply vs {fmt(cityDailyEvDemand)} kWh/day EV demand across ~{fmt(KOFU_HOUSEHOLDS)} Kōfu households
+            </div>
+            <div style={styles.verdict}>
+              {cityRatio >= 1
+                ? `City-wide solar could fully cover EV demand at these adoption rates, with ${((cityRatio - 1) * 100).toFixed(0)}% to spare.`
+                : `Solar covers ${(cityRatio * 100).toFixed(0)}% of city EV demand — the rest draws from the grid.`}
+            </div>
+          </div>
+
+          <div style={styles.card}>
+            <div style={styles.cardLabel}>DAILY ENERGY: SUPPLY VS DEMAND (kWh/day)</div>
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={cityBarData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 6" stroke="#d8d2c2" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 13, fill: '#1f2620' }} axisLine={{ stroke: '#d8d2c2' }} tickLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#1f2620' }} axisLine={false} tickLine={false} width={70} />
+                <Tooltip contentStyle={{ fontFamily: 'sans-serif', fontSize: 13, borderRadius: 8, border: '1px solid #d8d2c2' }}
+                  formatter={(value) => [`${fmt(value)} kWh/day`, '']} />
+                <Bar dataKey="value" radius={[6, 6, 0, 0]}>
+                  {cityBarData.map((entry, i) => <Cell key={i} fill={entry.fill === 'var(--color-ev)' ? '#2f6f6b' : '#e8964a'} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div style={styles.statGrid}>
+            <div style={styles.statBox}><div style={styles.statBoxLabel}>EV households</div><div style={styles.statBoxVal}>{fmt(cityEvHouseholds)}</div></div>
+            <div style={styles.statBox}><div style={styles.statBoxLabel}>Solar households</div><div style={styles.statBoxVal}>{fmt(citySolarHouseholds)}</div></div>
+            <div style={styles.statBox}><div style={styles.statBoxLabel}>Daily EV demand</div><div style={styles.statBoxVal}>{fmt(cityDailyEvDemand)} kWh</div></div>
+            <div style={styles.statBox}><div style={styles.statBoxLabel}>Daily solar supply</div><div style={styles.statBoxVal}>{fmt(cityDailySolarSupply)} kWh</div></div>
+          </div>
+
+          <p style={styles.footnote}>
+            <Icon name="Info" size={13} style={{ marginRight: 4 }} />
+            Modeled on ~79,000 households in Kōfu city. Excludes battery storage and time-of-day mismatch
+            (solar peaks midday, charging often happens at night) — actual grid coverage would be lower without storage.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
